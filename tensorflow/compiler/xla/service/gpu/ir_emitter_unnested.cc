@@ -1347,52 +1347,9 @@ Status IrEmitterUnnested::EmitSwapThunk(mlir::Operation* op) {
   auto custom_call = mlir::cast<mlir::lmhlo::CustomCallOp>(op);
   const std::string call_target_name = custom_call.call_target_name().str();
 
-  std::vector<BufferAllocation::Slice> operands;
-  std::vector<BufferAllocation::Slice> results;
-
-  if (custom_call.target_arg_mapping()) {
-    auto values_to_slices_with_token_holes =
-        [&](mlir::ValueRange operands, mlir::ArrayAttr op_to_target_mapping,
-            mlir::IntegerAttr num_target)
-        -> StatusOr<std::vector<BufferAllocation::Slice>> {
-      std::vector<BufferAllocation::Slice> slices(num_target.getInt());
-      for (auto index_and_value_it :
-           llvm::zip(op_to_target_mapping, operands)) {
-        mlir::Attribute index_attr = std::get<0>(index_and_value_it);
-        mlir::Value value = std::get<1>(index_and_value_it);
-        int64_t index = index_attr.cast<mlir::IntegerAttr>().getInt();
-        TF_ASSIGN_OR_RETURN(BufferAllocation::Slice slice,
-                            GetAllocationSlice(value));
-        slices[index] = slice;
-      }
-      return slices;
-    };
-
-    mlir::lmhlo::CustomCallTargetArgMapping target_mapping =
-        *custom_call.target_arg_mapping();
-    TF_ASSIGN_OR_RETURN(
-        operands, values_to_slices_with_token_holes(
-                      custom_call.args(), target_mapping.args_to_target_args(),
-                      target_mapping.num_args()));
-    TF_ASSIGN_OR_RETURN(results, values_to_slices_with_token_holes(
-                                     custom_call.output(),
-                                     target_mapping.results_to_target_results(),
-                                     target_mapping.num_results()));
-  } else {
-    auto values_to_slices = [&](mlir::ValueRange values)
-        -> StatusOr<std::vector<BufferAllocation::Slice>> {
-      std::vector<BufferAllocation::Slice> slices;
-      for (mlir::Value value : values) {
-        TF_ASSIGN_OR_RETURN(BufferAllocation::Slice slice,
-                            GetAllocationSlice(value));
-        slices.push_back(slice);
-      }
-      return slices;
-    };
-
-    TF_ASSIGN_OR_RETURN(operands, values_to_slices(custom_call.args()));
-    TF_ASSIGN_OR_RETURN(results, values_to_slices(custom_call.output()));
-  }
+  TF_ASSIGN_OR_RETURN(auto slice_pairs, GetCustomCallSlices(op));
+  auto& operands = slice_pairs.first;
+  auto& results = slice_pairs.second;
 
   std::vector<int64_t> byte_sizes;
   std::vector<std::string> keys =
@@ -1448,6 +1405,25 @@ Status IrEmitterUnnested::EmitSwapDoneThunk(mlir::Operation* op) {
   AddThunkToThunkSequence(absl::make_unique<SwapDoneThunk>(
       GetThunkInfo(op), swap_event_map_.at(event_key)));
 
+  return Status::OK();
+}
+
+Status IrEmitterUnnested::EmitRngThunk(mlir::Operation* op) {
+  auto custom_call = mlir::cast<mlir::lmhlo::CustomCallOp>(op);
+  const std::string call_target_name = custom_call.call_target_name().str();
+
+  TF_ASSIGN_OR_RETURN(auto slice_pairs, GetCustomCallSlices(op));
+  auto& operands = slice_pairs.first;
+  auto& results = slice_pairs.second;
+  if (call_target_name == kBuiltinRngGetStateTarget) {
+    CHECK(results.size() == 1);
+    AddThunkToThunkSequence(
+        absl::make_unique<RngGetStateThunk>(GetThunkInfo(op), results[0]));
+  } else if (call_target_name == kBuiltinRngSetStateTarget) {
+    CHECK(operands.size() == 1);
+    AddThunkToThunkSequence(
+        absl::make_unique<RngSetStateThunk>(GetThunkInfo(op), operands[0]));
+  }
   return Status::OK();
 }
 
@@ -5732,6 +5708,10 @@ Status IrEmitterUnnested::EmitOp(mlir::Operation* op) {
         call.call_target_name() == kBuiltinSwapInTarget) {
       return EmitSwapThunk(op);
     }
+    if (call.call_target_name() == kBuiltinRngGetStateTarget || 
+        call.call_target_name() == kBuiltinRngSetStateTarget) {
+      return EmitRngThunk(op);
+    }
     if (call.call_target_name() == kBuiltinSwapDoneTarget) {
       return EmitSwapDoneThunk(op);
     }
@@ -5876,6 +5856,59 @@ Thunk::ThunkInfo IrEmitterUnnested::GetThunkInfo(mlir::Operation* op) {
       "Thunk:#hlo_op=%s,hlo_module=%s%s#", mlir::GetNameFromLoc(op->getLoc()),
       mlir::GetNameFromLoc(module->getLoc()), unique_id_str);
   return thunk_info;
+}
+
+using BufferSlices = std::vector<BufferAllocation::Slice>;
+StatusOr<std::pair<BufferSlices, BufferSlices>>
+IrEmitterUnnested::GetCustomCallSlices(mlir::Operation* op) {
+  auto custom_call = mlir::cast<mlir::lmhlo::CustomCallOp>(op);
+
+  BufferSlices operands;
+  BufferSlices results;
+
+  if (custom_call.target_arg_mapping()) {
+    auto values_to_slices_with_token_holes =
+        [&](mlir::ValueRange operands, mlir::ArrayAttr op_to_target_mapping,
+            mlir::IntegerAttr num_target) -> StatusOr<BufferSlices> {
+      BufferSlices slices(num_target.getInt());
+      for (auto index_and_value_it :
+           llvm::zip(op_to_target_mapping, operands)) {
+        mlir::Attribute index_attr = std::get<0>(index_and_value_it);
+        mlir::Value value = std::get<1>(index_and_value_it);
+        int64_t index = index_attr.cast<mlir::IntegerAttr>().getInt();
+        TF_ASSIGN_OR_RETURN(BufferAllocation::Slice slice,
+                            GetAllocationSlice(value));
+        slices[index] = slice;
+      }
+      return slices;
+    };
+
+    mlir::lmhlo::CustomCallTargetArgMapping target_mapping =
+        *custom_call.target_arg_mapping();
+    TF_ASSIGN_OR_RETURN(
+        operands, values_to_slices_with_token_holes(
+                      custom_call.args(), target_mapping.args_to_target_args(),
+                      target_mapping.num_args()));
+    TF_ASSIGN_OR_RETURN(results, values_to_slices_with_token_holes(
+                                     custom_call.output(),
+                                     target_mapping.results_to_target_results(),
+                                     target_mapping.num_results()));
+  } else {
+    auto values_to_slices =
+        [&](mlir::ValueRange values) -> StatusOr<BufferSlices> {
+      BufferSlices slices;
+      for (mlir::Value value : values) {
+        TF_ASSIGN_OR_RETURN(BufferAllocation::Slice slice,
+                            GetAllocationSlice(value));
+        slices.push_back(slice);
+      }
+      return slices;
+    };
+
+    TF_ASSIGN_OR_RETURN(operands, values_to_slices(custom_call.args()));
+    TF_ASSIGN_OR_RETURN(results, values_to_slices(custom_call.output()));
+  }
+  return std::make_pair(operands, results);
 }
 
 }  // namespace gpu

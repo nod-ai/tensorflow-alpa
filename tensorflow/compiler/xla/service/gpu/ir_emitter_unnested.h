@@ -179,6 +179,7 @@ class IrEmitterUnnested : public IrEmitter {
   Status EmitCholeskyThunk(mlir::Operation* op);
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
   Status EmitSwapThunk(mlir::Operation* op);
+  Status EmitRngThunk(mlir::Operation* op);
   Status EmitSwapDoneThunk(mlir::Operation* op);
   Status EmitMemZeroThunk(mlir::Operation* op);
   Status EmitCustomCallThunk(mlir::Operation* op);
@@ -746,6 +747,10 @@ class IrEmitterUnnested : public IrEmitter {
   // Returns the buffer allocation Slice for the given operands.
   StatusOr<std::vector<BufferAllocation::Slice>> GetSlices(
       mlir::Operation::operand_range operands);
+
+  using BufferSlices = std::vector<BufferAllocation::Slice>;
+  StatusOr<std::pair<BufferSlices, BufferSlices>> GetCustomCallSlices(
+    mlir::Operation* op);
 };
 
 }  // namespace gpu
