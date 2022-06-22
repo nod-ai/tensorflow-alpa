@@ -1504,7 +1504,9 @@ std::vector<ReplicaGroup> SpmdPartitioningVisitor::CreateReplicaGroups(
 }
 
 Status SpmdPartitioningVisitor::DefaultAction(HloInstruction* hlo) {
-  if (hlo->IsCustomCall("identity") || hlo->IsCustomCall("pipeline_marker")) {
+  // TODO(yonghao): move the if into StatefulRngSpmdPartitioner
+  if (hlo->IsCustomCall("identity") || hlo->IsCustomCall("pipeline_marker")
+      || hlo->IsCustomCall("alpa$get-state") || hlo->IsCustomCall("alpa$set-state")) {
     return HandleElementwise(hlo);
   }
 

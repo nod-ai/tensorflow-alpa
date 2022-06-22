@@ -31,6 +31,8 @@ extern const char* const kPipelineMarker;
 extern const char* const kIdentityMarker;
 constexpr absl::string_view kPipelineMarkerStartType = "start";
 constexpr absl::string_view kPipelineMarkerEndType = "end";
+extern const char* const kBuiltinRngGetState;
+extern const char* const kBuiltinRngSetState;
 
 /*
  * Array/Vector/Matrix Utility
@@ -245,6 +247,12 @@ inline void ReplaceOperand(HloInstruction* inst,
 inline bool IsCustomCallMarker(const HloInstruction* inst) {
   return inst->IsCustomCall(kPipelineMarker) ||
          inst->IsCustomCall(kIdentityMarker);
+}
+
+// Return whether this instruction is a RNG get seed or set seed created in Alpa
+inline bool IsCustomCallRng(const HloInstruction* inst) {
+  return inst->IsCustomCall(kBuiltinRngGetState) ||
+         inst->IsCustomCall(kBuiltinRngSetState);
 }
 
 // Return whether the reshape is a special reshape that switches the batch dim

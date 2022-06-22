@@ -46,6 +46,7 @@ Status RngGetStateThunk::ExecuteOnStream(const ExecuteParams& params) {
   // Note: Here we only use the lowest 32 bits of seed for performance concern.
   // Ideally, the seed should be a 128-bit integer.
   void *cpu_state = static_cast<void *>(rng_states + device_ordinal);
+  std::cerr << "getting state " << rng_states[device_ordinal] << " with size " << dest_addr.size();
   params.stream->ThenMemcpy(&dest_addr, cpu_state, dest_addr.size());
   return Status::OK();
 }
@@ -64,6 +65,11 @@ Status RngSetStateThunk::ExecuteOnStream(const ExecuteParams& params) {
   // Ideally, the seed should be a 128-bit integer.
   void *cpu_state = static_cast<void *>(rng_states + device_ordinal);
   params.stream->ThenMemcpy(cpu_state, src_addr, src_addr.size());
+  // auto done_event = std::make_unique<se::Event>(params.stream->parent());
+  // TF_RET_CHECK(done_event->Init());
+  // params.stream->ThenRecordEvent(done_event.get());
+  params.stream->BlockHostUntilDone();
+  std::cerr << "setting state " << rng_states[device_ordinal] << " with size " << src_addr.size();
   return Status::OK();
 }
 

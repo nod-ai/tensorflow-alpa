@@ -21,6 +21,8 @@ NullStream& NullStream::Global() {
 
 const char* const kPipelineMarker = "pipeline_marker";
 const char* const kIdentityMarker = "identity";
+const char* const kBuiltinRngGetState = "alpa$get-state";
+const char* const kBuiltinRngSetState = "alpa$set-state";
 
 // Return whether a reshape instruction is a special reshape that switches
 // the batch dim of a dot.

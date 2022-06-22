@@ -1417,6 +1417,10 @@ BuildStrategyAndCost(const HloInstructionSequence& sequence,
           strategies = FollowInsStrategyVector(
               src_strategies, ins->shape(), instruction_id,
               /* have_memory_cost= */ false, leaf_strategies);
+        } else if (IsCustomCallRng(ins)) {
+          strategies = CreateLeafStrategyVector(instruction_id, ins, strategy_map,
+                                              leaf_strategies);
+          AddReplicatedStrategy(ins, cluster_env, strategy_map, strategies, 0);
         } else {
           LOG(FATAL) << "Unknown CustomCall instruction: " + ins->ToString();
         }

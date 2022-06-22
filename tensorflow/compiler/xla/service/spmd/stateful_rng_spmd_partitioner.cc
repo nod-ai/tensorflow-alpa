@@ -80,6 +80,7 @@ bool StatefulRngSpmdPartitioner::CanSideEffectingHaveReplicatedSharding(
   if (hlo->opcode() == HloOpcode::kAllReduce &&
       Cast<HloAllReduceInstruction>(hlo)->use_global_device_ids()) return true;
   if (hlo->IsCustomCall(kPipelineMarker) || hlo->IsCustomCall(kIdentityMarker)) return true;
+  if (IsCustomCallRng(hlo)) return true;
   return spmd::SpmdPartitioner::CanSideEffectingHaveReplicatedSharding(hlo);
 }
 

@@ -153,8 +153,8 @@ const char* const kBuiltinSwapOutTarget = "__builtin$SwapOut";
 const char* const kBuiltinSwapInTarget = "__builtin$SwapIn";
 const char* const kBuiltinSwapDoneTarget = "__builtin$SwapDone";
 const char* const kBuiltinMemZeroTarget = "__builtin$MemZero";
-const char* const kBuiltinRngGetStateTarget = "alpa$set-state";
-const char* const kBuiltinRngSetStateTarget = "alpa$get-state";
+const char* const kBuiltinRngGetStateTarget = "alpa$get-state";
+const char* const kBuiltinRngSetStateTarget = "alpa$set-state";
 
 static ReductionDimensions GetReductionKindAndContiguousComponentsImpl(
     const Shape& input_shape, absl::Span<const int64_t> dims_to_reduce) {
