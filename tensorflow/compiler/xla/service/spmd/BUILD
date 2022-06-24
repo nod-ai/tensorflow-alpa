@@ -237,6 +237,16 @@ cc_library(
 )
 
 cc_library(
+    name = "stateful_rng_dependency_adder",
+    srcs = ["stateful_rng_dependency_adder.cc"],
+    hdrs = ["stateful_rng_dependency_adder.h"],
+    deps = [
+        "//tensorflow/compiler/xla/service:hlo",
+        "//tensorflow/compiler/xla/service:hlo_pass",
+    ]
+)
+
+cc_library(
     name = "alpa_compiler",
     srcs = ["alpa_compile.cc"],
     hdrs = ["alpa_compile.h"],
@@ -246,6 +256,7 @@ cc_library(
         ":grad_acc_rewrite",
         ":slice_auto_sharded_stages",
         ":stateful_rng_spmd_partitioner",
+        ":stateful_rng_dependency_adder",
         "//tensorflow/compiler/xla/pjrt:pjrt_client",
         "//tensorflow/compiler/xla/service:algebraic_simplifier",
         "//tensorflow/compiler/xla/service:call_inliner",

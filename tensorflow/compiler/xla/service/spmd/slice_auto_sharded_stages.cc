@@ -31,6 +31,10 @@ std::unique_ptr<HloModule> CreateStageModule(
   absl::flat_hash_map<const HloInstruction*, VisitState> visited;
   std::vector<const HloInstruction*> dfs_stack;
   dfs_stack.push_back(stage_end_instruction->operand(0));
+  for (const HloInstruction* preds :
+       stage_end_instruction->control_predecessors()) {
+    dfs_stack.push_back(preds);
+  }
 
   while (!dfs_stack.empty()) {
     auto* cur = dfs_stack.back();
@@ -51,6 +55,9 @@ std::unique_ptr<HloModule> CreateStageModule(
           cur->operand(0) == stage_start_instruction)) {
       for (auto operand : cur->operands()) {
         dfs_stack.push_back(operand);
+      }
+      for (auto pred : cur->control_predecessors()) {
+        dfs_stack.push_back(pred);
       }
     }
   }

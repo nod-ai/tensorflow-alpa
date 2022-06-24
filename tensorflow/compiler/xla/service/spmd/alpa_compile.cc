@@ -26,6 +26,7 @@
 #include "tensorflow/compiler/xla/service/spmd/grad_acc_rewrite.h"
 #include "tensorflow/compiler/xla/service/spmd/redundant_slice_eliminator.h"
 #include "tensorflow/compiler/xla/service/spmd/slice_auto_sharded_stages.h"
+#include "tensorflow/compiler/xla/service/spmd/stateful_rng_dependency_adder.h"
 #include "tensorflow/compiler/xla/service/spmd/stateful_rng_spmd_partitioner.h"
 #include "tensorflow/compiler/xla/service/transpose_folding.h"
 #include "tensorflow/compiler/xla/service/tuple_simplifier.h"
@@ -98,6 +99,7 @@ Status RunAutoShardingPass(HloModule* hlo_module,
   if (hlo_module->config().use_spmd_partitioning()) {
     HloPassPipeline spmd_pipeline("spmd-partitioner");
     const int64_t num_partitions = hlo_module->config().num_partitions();
+    spmd_pipeline.AddPass<RngDependencyAdder>();
     if (num_partitions > 1) {
       // Run some IR cleanup passes before running the SPMD partitioning passes.
       spmd_pipeline.AddInvariantChecker<HloVerifier>(
