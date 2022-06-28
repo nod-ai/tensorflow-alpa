@@ -1,4 +1,5 @@
 #include "tensorflow/compiler/xla/service/spmd/alpa_compile.h"
+
 #include "tensorflow/compiler/xla/service/algebraic_simplifier.h"
 #include "tensorflow/compiler/xla/service/call_inliner.h"
 #include "tensorflow/compiler/xla/service/conditional_canonicalizer.h"
@@ -16,6 +17,7 @@
 #include "tensorflow/compiler/xla/service/hlo_pass_pipeline.h"
 #include "tensorflow/compiler/xla/service/hlo_proto_util.h"
 #include "tensorflow/compiler/xla/service/hlo_verifier.h"
+#include "tensorflow/compiler/xla/service/pass_context.h"
 #include "tensorflow/compiler/xla/service/reshape_mover.h"
 #include "tensorflow/compiler/xla/service/scatter_expander.h"
 #include "tensorflow/compiler/xla/service/sharding_propagation.h"
@@ -24,6 +26,7 @@
 #include "tensorflow/compiler/xla/service/spmd/auto_sharding.h"
 #include "tensorflow/compiler/xla/service/spmd/auto_sharding_util.h"
 #include "tensorflow/compiler/xla/service/spmd/grad_acc_rewrite.h"
+#include "tensorflow/compiler/xla/service/spmd/nod_auto_sharding.h"
 #include "tensorflow/compiler/xla/service/spmd/redundant_slice_eliminator.h"
 #include "tensorflow/compiler/xla/service/spmd/slice_auto_sharded_stages.h"
 #include "tensorflow/compiler/xla/service/spmd/stateful_rng_spmd_partitioner.h"
@@ -32,6 +35,7 @@
 #include "tensorflow/compiler/xla/service/while_loop_constant_sinking.h"
 #include "tensorflow/compiler/xla/service/while_loop_simplifier.h"
 #include "tensorflow/compiler/xla/service/zero_sized_hlo_elimination.h"
+#include "tensorflow/core/platform/logging.h"
 
 namespace xla {
 namespace spmd {
@@ -142,7 +146,19 @@ Status RunAutoShardingPass(HloModule* hlo_module,
       spmd_simplify.AddPass<HloCSE>(/*is_layout_sensitive=*/false);
       spmd_simplify.AddPass<HloDCE>();
 
-      spmd_pipeline.AddPass<AutoSharding>();
+      auto algorithm =
+          pass_context::GetString("auto_sharding::algorithm", "NOT FOUND");
+      if (algorithm == "alpa_ilp") {
+        spmd_pipeline.AddPass<AutoSharding>();
+      } else if (algorithm == "nod") {
+        spmd_pipeline.AddPass<NodAutoSharding>();
+      } else if (algorithm == "NOT FOUND") {
+        LOG(FATAL) << "auto-sharding algorithm not specified.";
+      } else {
+        LOG(FATAL) << "Unknown auto-sharding algorithm \"" << algorithm
+                   << "\".";
+      }
+
       spmd_pipeline.AddPass<ShardingPropagation>(
           /*is_spmd=*/true, /*propagate_metadata=*/false,
           /*allow_spmd_sharding_propagation_to_output=*/true);
