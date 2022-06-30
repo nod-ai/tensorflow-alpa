@@ -27,7 +27,6 @@
 #include "tensorflow/compiler/xla/service/spmd/auto_sharding_util.h"
 #include "tensorflow/compiler/xla/service/spmd/grad_acc_rewrite.h"
 #include "tensorflow/compiler/xla/service/spmd/nod_auto_sharding.h"
-#include "tensorflow/compiler/xla/service/spmd/record_hlo.h"
 #include "tensorflow/compiler/xla/service/spmd/redundant_slice_eliminator.h"
 #include "tensorflow/compiler/xla/service/spmd/slice_auto_sharded_stages.h"
 #include "tensorflow/compiler/xla/service/spmd/stateful_rng_spmd_partitioner.h"

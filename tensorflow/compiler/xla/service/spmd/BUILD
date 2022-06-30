@@ -210,6 +210,18 @@ cc_library(
 )
 
 cc_library(
+    name = "record_hlo",
+    srcs = ["record_hlo.cc"],
+    hdrs = ["record_hlo.h"],
+    deps = [
+        "//tensorflow/compiler/xla/service:hlo",
+        "//tensorflow/compiler/xla/service:hlo_pass",
+        "//tensorflow/compiler/xla/service:pass_context",
+	"@pybind11",
+    ],
+)
+
+cc_library(
     name = "redundant_slice_eliminator",
     srcs = ["redundant_slice_eliminator.cc"],
     hdrs = ["redundant_slice_eliminator.h"],
@@ -253,6 +265,7 @@ cc_library(
     deps = [
         ":auto_sharding",
         ":nod_auto_sharding",
+	":record_hlo",
         ":redundant_slice_eliminator",
         ":grad_acc_rewrite",
         ":slice_auto_sharded_stages",
