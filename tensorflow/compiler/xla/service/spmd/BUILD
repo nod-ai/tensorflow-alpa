@@ -200,16 +200,6 @@ cc_library(
 )
 
 cc_library(
-    name = "nod_auto_sharding",
-    srcs = [],
-    hdrs = ["nod_auto_sharding.h"],
-    deps = [
-        "//tensorflow/compiler/xla/service:hlo",
-        "//tensorflow/compiler/xla/service:hlo_pass",
-    ],
-)
-
-cc_library(
     name = "redundant_slice_eliminator",
     srcs = ["redundant_slice_eliminator.cc"],
     hdrs = ["redundant_slice_eliminator.h"],
@@ -252,7 +242,7 @@ cc_library(
     hdrs = ["alpa_compile.h"],
     deps = [
         ":auto_sharding",
-        ":nod_auto_sharding",
+        "//tensorflow/compiler/xla/service/spmd/nod:nod_auto_sharding",
         ":redundant_slice_eliminator",
         ":grad_acc_rewrite",
         ":slice_auto_sharded_stages",
