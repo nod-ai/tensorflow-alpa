@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package nod;
+
+message Mesh {
+  repeated int64 mesh_ids = 1;
+  repeated double alpha = 2;
+  repeated double beta = 3;
+}
