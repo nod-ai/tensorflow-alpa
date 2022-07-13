@@ -1,6 +1,5 @@
 #include "tensorflow/compiler/xla/service/spmd/record_hlo.h"
 
-#include <iostream>
 #include <fstream>
 
 #include "pybind11/numpy.h"
@@ -22,7 +21,6 @@ StatusOr<bool> RecordHLO::Run(HloModule* module) {
 	  pass_context::GetDoubleVector("auto_sharding::device_mesh_alpha");
   std::vector<double> mesh_beta =
 	  pass_context::GetDoubleVector("auto_sharding::device_mesh_beta");
-  std::cout << "hello!" << std::endl; 
   std::string serialized_module;
   if (!module->ToProto().SerializeToString(&serialized_module)) {
     return Unknown("Failed to serialize the HloModuleProto.");
