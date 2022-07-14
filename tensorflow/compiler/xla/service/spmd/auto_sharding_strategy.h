@@ -701,6 +701,24 @@ class ClusterEnvironment {
   }
 };
 
+struct IntraOpStageCost {
+  // Compute cost of the graph.
+  // This does not profile the code but computes the cost as in the ILP formulation.
+  // The key in operand_shardings is the index of the operand for the instruction.
+  double Cost(const HloModuleProto& module_proto,
+      const absl::flat_hash_map<std::tuple<HloInstruction*, unsigned>, HloSharding>& operand_shardings) {
+    return 0;
+  }
+
+  double Cost(const HloComputation& computation,
+      const absl::flat_hash_map<std::tuple<HloInstruction*, unsigned>, HloSharding>& operand_shardings) {
+    return 0;
+  }
+
+private:
+  ClusterEnvironment cluster_env;
+};
+
 // A graph data structure to simplify the edge cost graph.
 // It merges nodes and does path compression.
 class CostGraph {

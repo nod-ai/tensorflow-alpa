@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <memory>
 #include <vector>
+#include <utility>
 
 #include "absl/container/inlined_vector.h"
 #include "absl/types/optional.h"
@@ -34,6 +35,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/types.h"
 #include "tensorflow/compiler/xla/xla_data.pb.h"
 #include "tensorflow/core/platform/protobuf.h"
+#include "tensorflow/compiler/xla/array.h"
 
 namespace xla {
 
@@ -142,6 +144,33 @@ struct CastToArrayResult {
   xla::Shape shape;
 };
 absl::optional<CastToArrayResult> CastToArray(pybind11::handle h);
+
+//template <class IndexIt, class StrideIt>
+//ssize_t strided_offset(IndexIt index_begin, IndexIt index_end, StrideIt stride_begin, StrideIt stride_end) {
+//  ssize_t res = 0;
+//  IndexIt index_it = index_begin;
+//  IndexIt stride_it = stride_begin;
+//
+//  // i0*s0 + i1*s1 + .. + in*sn
+//  while (index_it != index_end) {
+//    res = *index_it * *stride_it;
+//    ++index_it;
+//    ++stride_it;
+//  }
+//  return res;
+//}
+
+template <class T>
+Array<T> CastToArray(pybind11::array_t<T> arr) {
+  pybind11::object numpy_module = pybind11::module_::import("numpy");
+  pybind11::object ravel = numpy_module.attr("ravel");
+  pybind11::object flattened_obj = ravel(arr);
+  pybind11::array_t<T> flattened = flattended_obj;
+  absl::Span<ssize_t> shape(arr.shape(), arr.ndim());
+  Array<T> res(std::move(shape));
+  std::copy(flattened.data(), flattened.data() + flattened.num_elements(), res.begin());
+  return res;
+}
 
 }  // namespace xla
 

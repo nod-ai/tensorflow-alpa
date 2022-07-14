@@ -131,6 +131,7 @@ cc_library(
     features = ["-use_header_modules"],
     deps = [
         ":status_casters",
+        "//tensorflow/compiler/xla:array",
         "//tensorflow/compiler/xla:literal",
         "//tensorflow/compiler/xla:shape_util",
         "//tensorflow/compiler/xla:status",

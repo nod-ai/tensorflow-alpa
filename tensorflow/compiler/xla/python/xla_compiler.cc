@@ -58,6 +58,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/xla.pb.h"
 #include "tensorflow/compiler/xla/xla_data.pb.h"
 #include "tensorflow/core/lib/strings/proto_serialization.h"
+#include "tensorflow/compiler/xla/service/spmd/auto_sharding_strategy.h"
 
 namespace xla {
 namespace {
@@ -820,6 +821,13 @@ void BuildXlaCompilerSubmodule(py::module& m) {
           return Status::OK();
         }, 
         py::arg("hlo_module"), py::arg("compile_options") = CompileOptions());
+
+  py::class_<spmd::ClusterEnvironment> cluster_environment(m, "ClusterEnvironment");
+  cluster_environment.def(py::init<>)
+
+  py::class_<spmd::IntraOpStageCost> intra_op_stage_cost(m, "IntraOpStageCost");
+
+
 
   m.def("run_spmd_partitioner", 
         [](HloModule* hlo_module, const CompileOptions& options) {
