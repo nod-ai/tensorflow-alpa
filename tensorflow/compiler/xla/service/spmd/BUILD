@@ -1,5 +1,9 @@
 # Description: SPMD partitioning pass.
 
+load(
+    "//tensorflow/core/platform:build_config.bzl",
+    "tf_proto_library",
+)
 load("//tensorflow/core/platform:rules_cc.bzl", "cc_library")
 load("//tensorflow:tensorflow.bzl", "tf_cc_test")
 
@@ -199,6 +203,25 @@ cc_library(
     ],
 )
 
+tf_proto_library(
+    name = "mesh_proto",
+    srcs = ["mesh.proto"],
+    cc_api_version = 2,
+)
+
+cc_library(
+    name = "record_hlo",
+    srcs = ["record_hlo.cc"],
+    hdrs = ["record_hlo.h"],
+    deps = [
+	":mesh_proto_cc",
+        "//tensorflow/compiler/xla/service:hlo",
+        "//tensorflow/compiler/xla/service:hlo_pass",
+        "//tensorflow/compiler/xla/service:pass_context",
+	"@pybind11",
+    ],
+)
+
 cc_library(
     name = "redundant_slice_eliminator",
     srcs = ["redundant_slice_eliminator.cc"],
@@ -243,6 +266,7 @@ cc_library(
     deps = [
         ":auto_sharding",
         "//tensorflow/compiler/xla/service/spmd/nod:nod_auto_sharding",
+	":record_hlo",
         ":redundant_slice_eliminator",
         ":grad_acc_rewrite",
         ":slice_auto_sharded_stages",

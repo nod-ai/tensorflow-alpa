@@ -26,8 +26,7 @@
 #include "tensorflow/compiler/xla/service/spmd/auto_sharding.h"
 #include "tensorflow/compiler/xla/service/spmd/auto_sharding_util.h"
 #include "tensorflow/compiler/xla/service/spmd/grad_acc_rewrite.h"
-#include "tensorflow/compiler/xla/service/spmd/nod/nod_auto_sharding.h"
-#include "tensorflow/compiler/xla/service/spmd/record_hlo.h"
+#include "tensorflow/compiler/xla/service/spmd/nod_auto_sharding.h"
 #include "tensorflow/compiler/xla/service/spmd/redundant_slice_eliminator.h"
 #include "tensorflow/compiler/xla/service/spmd/slice_auto_sharded_stages.h"
 #include "tensorflow/compiler/xla/service/spmd/stateful_rng_spmd_partitioner.h"
@@ -160,8 +159,7 @@ Status RunAutoShardingPass(HloModule* hlo_module,
                    << "\".";
       }
 
-      spmd_pipeline.AddPass<RecordHLO>("/tmp/alpa/module.txt",
-                                       "/tmp/alpa/mesh.txt");
+      spmd_pipeline.AddPass<RecordHLO>("/tmp/alpa/module.txt", "/tmp/alpa/mesh.txt");
       spmd_pipeline.AddPass<ShardingPropagation>(
           /*is_spmd=*/true, /*propagate_metadata=*/false,
           /*allow_spmd_sharding_propagation_to_output=*/true);
