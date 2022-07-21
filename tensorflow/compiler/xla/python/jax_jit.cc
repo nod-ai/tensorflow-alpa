@@ -404,6 +404,8 @@ class CompiledFunctionCache {
   absl::flat_hash_map<Key, std::unique_ptr<Value>> functions_;
 };
 
+constexpr int CompiledFunctionCache::kDefaultCapacity;
+
 CompiledFunctionCache::CompiledFunctionCache(int capacity)
     : lru_list_(capacity) {}
 
