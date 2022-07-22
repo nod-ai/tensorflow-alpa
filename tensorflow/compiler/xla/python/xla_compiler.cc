@@ -830,13 +830,12 @@ void BuildXlaCompilerSubmodule(py::module& m) {
       const std::vector<double>& mesh_beta,
       py::object prof_result) {
     return spmd::ClusterEnvironment(CastToArray(device_mesh), mesh_alpha, mesh_beta, spmd::ProfilingResult(prof_result), spmd::AutoShardingSolverOption());
-  }));
+  }), "", py::arg("device_mesh"), py::arg("mesh_alpha"), py::arg("mesh_beta"), py::arg("prof_result"));
 
   py::class_<spmd::IntraOpStageCost> intra_op_stage_cost(m, "IntraOpStageCost");
   intra_op_stage_cost
     .def(py::init<const spmd::ClusterEnvironment&>())
     .def("cost", [](const spmd::IntraOpStageCost& self, const py::bytes& hlo_module_proto, const absl::flat_hash_map<std::tuple<int64_t, unsigned>, py::bytes>& operand_shardings) {
-      std::cout << "operand_shardings.size() = " << operand_shardings.size() << std::endl;
       auto hlo_module_ptr = HloModuleFromSerializedProto(hlo_module_proto);
       HloModule& hlo_module = *hlo_module_ptr.ValueOrDie();
       HloComputation& hlo_computation = *hlo_module.entry_computation();
@@ -857,9 +856,8 @@ void BuildXlaCompilerSubmodule(py::module& m) {
             std::move(HloSharding::FromProto(sharding).ValueOrDie()));
       });
 
-      std::cout << "transformed_operand_shardings.size() = " << transformed_operand_shardings.size() << std::endl;
       return self.Cost(hlo_computation, transformed_operand_shardings);
-  });
+  }, "", py::arg("hlo_module_proto"), py::arg("operand_shardings"));
 
   m.def("run_spmd_partitioner", 
         [](HloModule* hlo_module, const CompileOptions& options) {
