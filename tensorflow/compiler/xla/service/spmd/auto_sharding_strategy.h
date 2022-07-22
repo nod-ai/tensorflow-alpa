@@ -3,6 +3,8 @@
 
 #include <cmath>
 #include <vector>
+#include <stdint.h>
+#include <tuple>
 
 #include "pybind11/pybind11.h"
 #include "tensorflow/compiler/xla/service/hlo_live_range.h"
@@ -475,6 +477,7 @@ class ClusterEnvironment {
   // The communication cost of resharding a tensor from src to dst
   double ReshardingCost(const Shape& shape, const HloSharding& src_spec,
                         const HloSharding& dst_spec) const {
+    std::cout << "enter ClusterEnvironment::ReshardingCost" << std::endl;
     // TODO(lmzheng): This function can be wrong and needs more tests.
     if (src_spec == dst_spec || IsUndefined(src_spec)) {
       return 0.0;
@@ -549,6 +552,7 @@ class ClusterEnvironment {
       bytes *= device_mesh.dim(dim);
       cost += AllGatherCost(bytes, dim);
     }
+    std::cout << "exit ClusterEnvironment::ReshardingCost" << std::endl;
     return cost;
   }
 
@@ -702,17 +706,29 @@ class ClusterEnvironment {
 };
 
 struct IntraOpStageCost {
+  IntraOpStageCost(const ClusterEnvironment& cluster_env) : cluster_env(cluster_env) { }
+
   // Compute cost of the graph.
   // This does not profile the code but computes the cost as in the ILP formulation.
-  // The key in operand_shardings is the index of the operand for the instruction.
+  // The key in operand_shardings is the instruction id and index of the operand for the instruction.
   double Cost(const HloModuleProto& module_proto,
-      const absl::flat_hash_map<std::tuple<HloInstruction*, unsigned>, HloSharding>& operand_shardings) {
+      const absl::flat_hash_map<std::tuple<int64_t, unsigned>, OpSharding>& operand_shardings) const {
     return 0;
   }
 
+  // The key in operand_shardings is the instruction id and index of the operand for the instruction.
   double Cost(const HloComputation& computation,
-      const absl::flat_hash_map<std::tuple<HloInstruction*, unsigned>, HloSharding>& operand_shardings) {
-    return 0;
+      const absl::flat_hash_map<std::tuple<const HloInstruction*, unsigned>, HloSharding>& operand_shardings) const {
+    return ReshardingCost(operand_shardings);
+  }
+
+  double ReshardingCost(const absl::flat_hash_map<std::tuple<const HloInstruction*, unsigned>, HloSharding>& operand_shardings) const {
+    double res = 0;
+    for(const auto& pair: operand_shardings) {
+      const HloInstruction& instr = *std::get<0>(pair.first);
+      res += cluster_env.ReshardingCost(instr.shape(), instr.sharding(), pair.second);
+    }
+    return res;
   }
 
 private:

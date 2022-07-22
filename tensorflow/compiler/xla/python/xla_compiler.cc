@@ -19,6 +19,8 @@ limitations under the License.
 #include <string>
 #include <utility>
 #include <vector>
+#include <iterator>
+#include <tuple>
 
 #include "absl/hash/hash.h"
 #include "absl/synchronization/mutex.h"
@@ -823,11 +825,41 @@ void BuildXlaCompilerSubmodule(py::module& m) {
         py::arg("hlo_module"), py::arg("compile_options") = CompileOptions());
 
   py::class_<spmd::ClusterEnvironment> cluster_environment(m, "ClusterEnvironment");
-  cluster_environment.def(py::init<>)
+  cluster_environment.def(py::init([](py::array_t<int64_t> device_mesh,
+      const std::vector<double>& mesh_alpha,
+      const std::vector<double>& mesh_beta,
+      py::object prof_result) {
+    return spmd::ClusterEnvironment(CastToArray(device_mesh), mesh_alpha, mesh_beta, spmd::ProfilingResult(prof_result), spmd::AutoShardingSolverOption());
+  }));
 
   py::class_<spmd::IntraOpStageCost> intra_op_stage_cost(m, "IntraOpStageCost");
+  intra_op_stage_cost
+    .def(py::init<const spmd::ClusterEnvironment&>())
+    .def("cost", [](const spmd::IntraOpStageCost& self, const py::bytes& hlo_module_proto, const absl::flat_hash_map<std::tuple<int64_t, unsigned>, py::bytes>& operand_shardings) {
+      std::cout << "operand_shardings.size() = " << operand_shardings.size() << std::endl;
+      auto hlo_module_ptr = HloModuleFromSerializedProto(hlo_module_proto);
+      HloModule& hlo_module = *hlo_module_ptr.ValueOrDie();
+      HloComputation& hlo_computation = *hlo_module.entry_computation();
+      absl::flat_hash_map<int64_t, const HloInstruction*> instruction_id_map;
+      std::transform(hlo_computation.instructions().begin(), hlo_computation.instructions().end(),
+          std::inserter(instruction_id_map, instruction_id_map.end()), [&hlo_computation](const HloInstruction* instr){
+        return absl::flat_hash_map<int64_t, const HloInstruction*>::value_type(instr->unique_id(), instr);
+      });
+      absl::flat_hash_map<std::tuple<const HloInstruction*, unsigned>, HloSharding> transformed_operand_shardings;
+      std::transform(operand_shardings.begin(), operand_shardings.end(),
+          std::inserter(transformed_operand_shardings, transformed_operand_shardings.end()), [&instruction_id_map](const auto& pair){
+        OpSharding sharding;
+        if (!sharding.ParseFromString(pair.second)) {
+          LOG(FATAL) << "Unable to parse protobuf sharding.";
+        }
+        return std::make_pair(
+            std::make_tuple(instruction_id_map[std::get<0>(pair.first)], std::get<1>(pair.first)),
+            std::move(HloSharding::FromProto(sharding).ValueOrDie()));
+      });
 
-
+      std::cout << "transformed_operand_shardings.size() = " << transformed_operand_shardings.size() << std::endl;
+      return self.Cost(hlo_computation, transformed_operand_shardings);
+  });
 
   m.def("run_spmd_partitioner", 
         [](HloModule* hlo_module, const CompileOptions& options) {

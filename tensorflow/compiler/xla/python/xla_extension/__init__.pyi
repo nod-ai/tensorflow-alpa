@@ -266,6 +266,13 @@ class OpSharding:
   tuple_shardings: Sequence[OpSharding]
   def SerializeToString(self) -> bytes: ...
 
+class ClusterEnvironment:
+    def __init__(self, device_mesh: np.ndarray, mesh_alpha: List[float], mesh_beta: List[float], prof_result: Optional["alpa.mesh_profiling.MeshProfilingResult"]) -> None: ...
+
+class IntraOpStageCost:
+    def __init__(self, cluster_env: ClusterEnvironment) -> None: ...
+    def cost(self, hlo_module_proto: bytes, operand_shardings: Dict[Tuple[int, int], "tensorflow.compiler.xla.service.hlo_pb2.OpSharding"]) -> float: ...
+
 class ChannelHandle_ChannelType(enum.IntEnum):
   CHANNEL_TYPE_INVALID: int
   DEVICE_TO_DEVICE: int

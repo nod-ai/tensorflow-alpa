@@ -18,7 +18,6 @@ limitations under the License.
 
 #include <memory>
 #include <vector>
-#include <utility>
 
 #include "absl/container/inlined_vector.h"
 #include "absl/types/optional.h"
@@ -165,10 +164,11 @@ Array<T> CastToArray(pybind11::array_t<T> arr) {
   pybind11::object numpy_module = pybind11::module_::import("numpy");
   pybind11::object ravel = numpy_module.attr("ravel");
   pybind11::object flattened_obj = ravel(arr);
-  pybind11::array_t<T> flattened = flattended_obj;
-  absl::Span<ssize_t> shape(arr.shape(), arr.ndim());
-  Array<T> res(std::move(shape));
-  std::copy(flattened.data(), flattened.data() + flattened.num_elements(), res.begin());
+  pybind11::array_t<T> flattened = flattened_obj;
+  std::vector<int64_t> shape_vec(arr.shape(), arr.shape() + arr.ndim());
+  absl::Span<const int64_t> shape(shape_vec.data(), shape_vec.size());
+  Array<T> res(shape);
+  std::copy(flattened.data(), flattened.data() + res.num_elements(), res.begin());
   return res;
 }
 
