@@ -16,7 +16,9 @@ limitations under the License.
 #include "tensorflow/compiler/xla/python/xla_compiler.h"
 
 #include <cstdint>
+#include <iterator>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -39,6 +41,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/python/types.h"
 #include "tensorflow/compiler/xla/service/computation_placer.h"
 #include "tensorflow/compiler/xla/service/custom_call_target_registry.h"
+#include "tensorflow/compiler/xla/service/gpu/gpu_cost_model.h"
 #include "tensorflow/compiler/xla/service/hlo.pb.h"
 #include "tensorflow/compiler/xla/service/hlo_graph_dumper.h"
 #include "tensorflow/compiler/xla/service/hlo_instruction.h"
@@ -48,8 +51,8 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/name_uniquer.h"
 #include "tensorflow/compiler/xla/service/pass_context.h"
 #include "tensorflow/compiler/xla/service/platform_util.h"
-#include "tensorflow/compiler/xla/service/gpu/gpu_cost_model.h"
 #include "tensorflow/compiler/xla/service/spmd/alpa_compile.h"
+#include "tensorflow/compiler/xla/service/spmd/auto_sharding_strategy.h"
 #include "tensorflow/compiler/xla/service/spmd/grad_acc_rewrite.h"
 #include "tensorflow/compiler/xla/shape.h"
 #include "tensorflow/compiler/xla/shape_util.h"
@@ -412,19 +415,22 @@ void BuildXlaCompilerSubmodule(py::module& m) {
       .def("hash", &HashComputation)
       .def("as_hlo_module", &GetHloModule)
       .def("setup_alias",
-           [](XlaComputation& computation, const std::vector<int64_t>& output_index,
-              int64_t param_number, const std::vector<int64_t>& param_index) {
+           [](XlaComputation& computation,
+              const std::vector<int64_t>& output_index, int64_t param_number,
+              const std::vector<int64_t>& param_index) {
              HloInputOutputAliasProto::AliasEntryProto entry;
              for (auto i : output_index) {
-                 entry.add_output_shape_index(i);
+               entry.add_output_shape_index(i);
              }
              entry.set_parameter_number(param_number);
              for (auto i : param_index) {
-                 entry.add_parameter_shape_index(i);
+               entry.add_parameter_shape_index(i);
              }
              entry.set_kind(Kind::MAY_ALIAS);
-             computation.mutable_proto()->mutable_input_output_alias()
-                                        ->add_entries()->Swap(&entry);
+             computation.mutable_proto()
+                 ->mutable_input_output_alias()
+                 ->add_entries()
+                 ->Swap(&entry);
            });
 
   py::class_<HloPrintOptions> hlo_print_options_class(m, "HloPrintOptions");
@@ -503,28 +509,32 @@ void BuildXlaCompilerSubmodule(py::module& m) {
       .def("spmd_output_sharding", &HloModule::spmd_output_sharding)
       .def("spmd_parameters_shardings", &HloModule::spmd_parameters_shardings)
       .def("set_spmd_output_sharding", &HloModule::set_spmd_output_sharding)
-      .def("set_spmd_parameters_shardings", &HloModule::set_spmd_parameters_shardings)
+      .def("set_spmd_parameters_shardings",
+           &HloModule::set_spmd_parameters_shardings)
       .def("infer_spmd_shardings", &HloModule::infer_spmd_shardings)
-      .def("setup_alias", [](std::shared_ptr<HloModule> hlo_module,
-                             const std::vector<int64_t>& output_index,
-                             int64_t param_number,
-                             const std::vector<int64_t>& param_index) {
-            hlo_module->input_output_alias_config().SetUpAlias(
-               ShapeIndex(output_index.begin(), output_index.end()),
-               param_number,
-               ShapeIndex(param_index.begin(), param_index.end()));
-          })
-      .def("program_shape", [](const HloModule& hlo_module) {
-            return hlo_module.entry_computation_layout().ComputeProgramShape();
-          })
-      .def("parameter_shapes", [](const HloModule& hlo_module) -> std::vector<Shape>{
-            const auto params = hlo_module.entry_computation()->parameter_instructions();
-            std::vector<Shape> ret(params.size());
-            for (size_t i = 0; i < params.size(); ++i) {
-              ret[i] = params[i]->shape();
-            }
-            return ret;
-          })
+      .def("setup_alias",
+           [](std::shared_ptr<HloModule> hlo_module,
+              const std::vector<int64_t>& output_index, int64_t param_number,
+              const std::vector<int64_t>& param_index) {
+             hlo_module->input_output_alias_config().SetUpAlias(
+                 ShapeIndex(output_index.begin(), output_index.end()),
+                 param_number,
+                 ShapeIndex(param_index.begin(), param_index.end()));
+           })
+      .def("program_shape",
+           [](const HloModule& hlo_module) {
+             return hlo_module.entry_computation_layout().ComputeProgramShape();
+           })
+      .def("parameter_shapes",
+           [](const HloModule& hlo_module) -> std::vector<Shape> {
+             const auto params =
+                 hlo_module.entry_computation()->parameter_instructions();
+             std::vector<Shape> ret(params.size());
+             for (size_t i = 0; i < params.size(); ++i) {
+               ret[i] = params[i]->shape();
+             }
+             return ret;
+           })
       .def("name", &HloModule::name);
 
   m.def("hlo_module_to_dot_graph",
@@ -542,16 +552,14 @@ void BuildXlaCompilerSubmodule(py::module& m) {
         TF_RETURN_IF_ERROR(module.entry_computation()->Accept(analysis.get()));
         return analysis->properties();
       });
-  m.def(
-      "hlo_module_count_flop_dot_conv_only",
-      [](const HloModule& module) -> double {
-        double ret = 0.0;
-        for (HloComputation* computation : module.computations()) {
-          ret += CountFlopDotConvOnly(*computation);
-        }
-        return ret;
-      });
-
+  m.def("hlo_module_count_flop_dot_conv_only",
+        [](const HloModule& module) -> double {
+          double ret = 0.0;
+          for (HloComputation* computation : module.computations()) {
+            ret += CountFlopDotConvOnly(*computation);
+          }
+          return ret;
+        });
 
   py::class_<XlaOp> xla_op_class(m, "XlaOp");
 
@@ -813,21 +821,89 @@ void BuildXlaCompilerSubmodule(py::module& m) {
   m.def("get_grad_sync_channel_ids", &spmd::GetGradSyncChannelIds,
         py::arg("module"), py::arg("grad_idx") = absl::nullopt);
 
-  m.def("run_auto_sharding", 
-        [](HloModule* hlo_module, const CompileOptions& options) {
-          py::gil_scoped_release gil_release;
-          TF_RETURN_IF_ERROR(spmd::RunAutoShardingPass(hlo_module, options));
-          return Status::OK();
-        }, 
-        py::arg("hlo_module"), py::arg("compile_options") = CompileOptions());
+  m.def(
+      "run_auto_sharding",
+      [](HloModule* hlo_module, const CompileOptions& options) {
+        py::gil_scoped_release gil_release;
+        TF_RETURN_IF_ERROR(spmd::RunAutoShardingPass(hlo_module, options));
+        return Status::OK();
+      },
+      py::arg("hlo_module"), py::arg("compile_options") = CompileOptions());
 
-  m.def("run_spmd_partitioner", 
-        [](HloModule* hlo_module, const CompileOptions& options) {
-          py::gil_scoped_release gil_release;
-          TF_RETURN_IF_ERROR(spmd::RunSpmdPartitionerPass(hlo_module, options));
-          return Status::OK();
-        }, 
-        py::arg("hlo_module"), py::arg("compile_options") = CompileOptions());
+  py::class_<spmd::AutoShardingSolverOption>(m, "AutoShardingSolverOption")
+      .def(py::init([]() { return spmd::DefaultAutoShardingSolverOption(); }));
+
+  py::class_<spmd::ProfilingResult>(m, "ProfilingResult")
+      .def(py::init<py::object>());
+
+  py::class_<spmd::ClusterEnvironment> cluster_environment(
+      m, "ClusterEnvironment");
+  cluster_environment.def(
+      py::init([](py::array_t<int64_t> device_mesh,
+                  const std::vector<double>& mesh_alpha,
+                  const std::vector<double>& mesh_beta,
+                  const spmd::ProfilingResult& prof_result,
+                  const spmd::AutoShardingSolverOption& solver_option) {
+        return spmd::ClusterEnvironment(CastToArray(device_mesh), mesh_alpha,
+                                        mesh_beta, prof_result, solver_option);
+      }),
+      "", py::arg("device_mesh"), py::arg("mesh_alpha"), py::arg("mesh_beta"),
+      py::arg("prof_result") = spmd::ProfilingResult(py::none()),
+      py::arg("solver_option") = spmd::DefaultAutoShardingSolverOption());
+
+  py::class_<spmd::IntraOpStageCost> intra_op_stage_cost(m, "IntraOpStageCost");
+  intra_op_stage_cost.def(py::init<const spmd::ClusterEnvironment&>())
+      .def(
+          "cost",
+          [](const spmd::IntraOpStageCost& self,
+             const py::bytes& hlo_module_proto,
+             const absl::flat_hash_map<std::tuple<int64_t, unsigned>,
+                                       py::bytes>& operand_shardings) {
+            auto hlo_module_ptr =
+                HloModuleFromSerializedProto(hlo_module_proto);
+            HloModule& hlo_module = *hlo_module_ptr.ValueOrDie();
+            HloComputation& hlo_computation = *hlo_module.entry_computation();
+            absl::flat_hash_map<int64_t, const HloInstruction*>
+                instruction_id_map;
+            std::transform(
+                hlo_computation.instructions().begin(),
+                hlo_computation.instructions().end(),
+                std::inserter(instruction_id_map, instruction_id_map.end()),
+                [&hlo_computation](const HloInstruction* instr) {
+                  return absl::flat_hash_map<int64_t, const HloInstruction*>::
+                      value_type(instr->unique_id(), instr);
+                });
+            absl::flat_hash_map<std::tuple<const HloInstruction*, unsigned>,
+                                HloSharding>
+                transformed_operand_shardings;
+            std::transform(
+                operand_shardings.begin(), operand_shardings.end(),
+                std::inserter(transformed_operand_shardings,
+                              transformed_operand_shardings.end()),
+                [&instruction_id_map](const auto& pair) {
+                  OpSharding sharding;
+                  if (!sharding.ParseFromString(pair.second)) {
+                    LOG(FATAL) << "Unable to parse protobuf sharding.";
+                  }
+                  return std::make_pair(
+                      std::make_tuple(
+                          instruction_id_map[std::get<0>(pair.first)],
+                          std::get<1>(pair.first)),
+                      std::move(HloSharding::FromProto(sharding).ValueOrDie()));
+                });
+
+            return self.Cost(hlo_computation, transformed_operand_shardings);
+          },
+          "", py::arg("hlo_module_proto"), py::arg("operand_shardings"));
+
+  m.def(
+      "run_spmd_partitioner",
+      [](HloModule* hlo_module, const CompileOptions& options) {
+        py::gil_scoped_release gil_release;
+        TF_RETURN_IF_ERROR(spmd::RunSpmdPartitionerPass(hlo_module, options));
+        return Status::OK();
+      },
+      py::arg("hlo_module"), py::arg("compile_options") = CompileOptions());
   /***** Alpa Functions End *****/
 
   py::enum_<PrecisionConfig::Precision>(m, "PrecisionConfig_Precision")

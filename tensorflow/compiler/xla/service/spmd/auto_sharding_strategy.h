@@ -1,7 +1,10 @@
 #ifndef TENSORFLOW_COMPILER_XLA_SERVICE_SPMD_AUTO_SHARDING_STRATEGY_H_
 #define TENSORFLOW_COMPILER_XLA_SERVICE_SPMD_AUTO_SHARDING_STRATEGY_H_
 
+#include <stdint.h>
+
 #include <cmath>
+#include <tuple>
 #include <vector>
 
 #include "pybind11/pybind11.h"
@@ -79,6 +82,30 @@ struct AutoShardingSolverOption {
   // instead of the ILP solver. This is used for ablation study.
   std::string force_simple_heuristic;
 };
+
+inline AutoShardingSolverOption DefaultAutoShardingSolverOption() {
+  AutoShardingSolverOption res;
+  res.force_batch_dim_to_mesh_dim = -1;
+  res.override_all_gather_cost = false;
+  res.all_gather_cost = 0;
+  res.override_all_reduce_cost = false;
+  res.all_reduce_cost = 0;
+  res.override_reduce_scatter_cost = false;
+  res.reduce_scatter_cost = 0;
+  res.override_all_to_all_cost = false;
+  res.all_to_all_cost = 0;
+  res.allow_replicated_parameters = true;
+  res.prefer_reduce_scatter = false;
+  res.reduce_scatter_grad_acc_friendly = false;
+  res.reduce_scatter_aggressive_partition = false;
+  res.batch_matmul_always_split_batch = true;
+  res.allow_recompute_heavy_op = false;
+  res.allow_mixed_mesh_shape = false;
+  res.grad_acc_num_micro_batches = 1;
+  res.load_solution_vector = false;
+  res.force_simple_heuristic = "";
+  return res;
+}
 
 // One sharding strategy
 struct ShardingStrategy {
@@ -699,6 +726,40 @@ class ClusterEnvironment {
       }
     }
   }
+};
+
+struct IntraOpStageCost {
+  IntraOpStageCost(const ClusterEnvironment& cluster_env)
+      : cluster_env(cluster_env) {}
+
+  // Compute cost of the graph.
+  // This does not profile the code but computes the cost as in the ILP
+  // formulation. The key in operand_shardings is the instruction id and index
+  // of the operand for the instruction.
+  double Cost(
+      const HloComputation& computation,
+      const absl::flat_hash_map<std::tuple<const HloInstruction*, unsigned>,
+                                HloSharding>& operand_shardings) const {
+    // TODO(boian): add communication costs
+    return ReshardingCost(operand_shardings);
+  }
+
+  double ReshardingCost(
+      const absl::flat_hash_map<std::tuple<const HloInstruction*, unsigned>,
+                                HloSharding>& operand_shardings) const {
+    double res = 0;
+    for (const auto& pair : operand_shardings) {
+      const HloInstruction& instr = *std::get<0>(pair.first);
+      unsigned operand_idx = std::get<1>(pair.first);
+      const HloInstruction& operand = *instr.operand(operand_idx);
+      res += cluster_env.ReshardingCost(instr.shape(), operand.sharding(),
+                                        pair.second);
+    }
+    return res;
+  }
+
+ private:
+  ClusterEnvironment cluster_env;
 };
 
 // A graph data structure to simplify the edge cost graph.
