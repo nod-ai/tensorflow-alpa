@@ -82,6 +82,30 @@ struct AutoShardingSolverOption {
   std::string force_simple_heuristic;
 };
 
+inline AutoShardingSolverOption DefaultAutoShardingSolverOption() {
+  AutoShardingSolverOption res;
+  res.force_batch_dim_to_mesh_dim = -1;
+  res.override_all_gather_cost = false;
+  res.all_gather_cost = 0;
+  res.override_all_reduce_cost = false;
+  res.all_reduce_cost = 0;
+  res.override_reduce_scatter_cost = false;
+  res.reduce_scatter_cost = 0;
+  res.override_all_to_all_cost = false;
+  res.all_to_all_cost = 0;
+  res.allow_replicated_parameters = true;
+  res.prefer_reduce_scatter = false;
+  res.reduce_scatter_grad_acc_friendly = false;
+  res.reduce_scatter_aggressive_partition = false;
+  res.batch_matmul_always_split_batch = true;
+  res.allow_recompute_heavy_op = false;
+  res.allow_mixed_mesh_shape = false;
+  res.grad_acc_num_micro_batches = 1;
+  res.load_solution_vector = false;
+  res.force_simple_heuristic = "";
+  return res;
+}
+
 // One sharding strategy
 struct ShardingStrategy {
   std::string name;

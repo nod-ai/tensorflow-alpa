@@ -266,8 +266,18 @@ class OpSharding:
   tuple_shardings: Sequence[OpSharding]
   def SerializeToString(self) -> bytes: ...
 
+class AutoShardingSolverOption:
+    def __init__(self):
+        ...
+
+class ProfilingResult:
+    def __init__(self, prof_result: Optional["alpa.mesh_profiling.MeshProfilingResult"]):
+        ...
+
 class ClusterEnvironment:
-    def __init__(self, device_mesh: np.ndarray, mesh_alpha: List[float], mesh_beta: List[float], prof_result: Optional["alpa.mesh_profiling.MeshProfilingResult"]) -> None: ...
+    def __init__(self, device_mesh: np.ndarray, mesh_alpha: List[float], mesh_beta: List[float],
+                 prof_result: ProfilingResult = ProfilingResult(),
+                 solver_option: AutoShardingSolverOption = AutoShardingSolverOption()) -> None: ...
 
 class IntraOpStageCost:
     def __init__(self, cluster_env: ClusterEnvironment) -> None: ...

@@ -824,13 +824,23 @@ void BuildXlaCompilerSubmodule(py::module& m) {
         }, 
         py::arg("hlo_module"), py::arg("compile_options") = CompileOptions());
 
+  py::class_<spmd::AutoShardingSolverOption>(m, "AutoShardingSolverOption")
+       .def(py::init([]() {
+    return spmd::DefaultAutoShardingSolverOption();
+  }));
+
+  py::class_<spmd::ProfilingResult>(m, "ProfilingResult")
+       .def(py::init<py::object>());
+
   py::class_<spmd::ClusterEnvironment> cluster_environment(m, "ClusterEnvironment");
   cluster_environment.def(py::init([](py::array_t<int64_t> device_mesh,
       const std::vector<double>& mesh_alpha,
       const std::vector<double>& mesh_beta,
-      py::object prof_result) {
-    return spmd::ClusterEnvironment(CastToArray(device_mesh), mesh_alpha, mesh_beta, spmd::ProfilingResult(prof_result), spmd::AutoShardingSolverOption());
-  }), "", py::arg("device_mesh"), py::arg("mesh_alpha"), py::arg("mesh_beta"), py::arg("prof_result"));
+      const spmd::ProfilingResult& prof_result,
+      const spmd::AutoShardingSolverOption& solver_option) {
+    return spmd::ClusterEnvironment(CastToArray(device_mesh), mesh_alpha, mesh_beta, prof_result, solver_option);
+  }), "", py::arg("device_mesh"), py::arg("mesh_alpha"), py::arg("mesh_beta"),
+      py::arg("prof_result") = spmd::ProfilingResult(py::none()), py::arg("solver_option") = spmd::DefaultAutoShardingSolverOption());
 
   py::class_<spmd::IntraOpStageCost> intra_op_stage_cost(m, "IntraOpStageCost");
   intra_op_stage_cost
