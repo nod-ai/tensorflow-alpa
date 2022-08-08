@@ -851,18 +851,21 @@ void BuildXlaCompilerSubmodule(py::module& m) {
       py::arg("prof_result") = spmd::ProfilingResult(py::none()),
       py::arg("solver_option") = spmd::DefaultAutoShardingSolverOption());
 
-  py::class_<spmd::IntraOpStageCost> intra_op_stage_cost(m, "IntraOpStageCost");
-  intra_op_stage_cost.def(py::init<const spmd::ClusterEnvironment&>())
+  py::class_<spmd::HloModuleShardingContext> hlo_module_sharding_context(
+      m, "HloModuleShardingContext");
+  hlo_module_sharding_context
+      .def(py::init<const std::shared_ptr<HloModule>&,
+                    const spmd::ClusterEnvironment&>())
       .def(
           "cost",
-          [](const spmd::IntraOpStageCost& self,
-             const py::bytes& hlo_module_proto,
-             const absl::flat_hash_map<std::tuple<int64_t, unsigned>,
-                                       py::bytes>& operand_shardings) {
-            auto hlo_module_ptr =
-                HloModuleFromSerializedProto(hlo_module_proto);
-            HloModule& hlo_module = *hlo_module_ptr.ValueOrDie();
-            HloComputation& hlo_computation = *hlo_module.entry_computation();
+          [](const spmd::HloModuleShardingContext& self,
+             const absl::flat_hash_map<int64_t, std::vector<py::bytes>>&
+                 operand_shardings) {
+            //            auto hlo_module_ptr =
+            //                HloModuleFromSerializedProto(hlo_module_proto);
+            //            HloModule& hlo_module = *hlo_module_ptr.ValueOrDie();
+            HloComputation& hlo_computation =
+                *self.HloModule()->entry_computation();
             absl::flat_hash_map<int64_t, const HloInstruction*>
                 instruction_id_map;
             std::transform(
@@ -873,28 +876,34 @@ void BuildXlaCompilerSubmodule(py::module& m) {
                   return absl::flat_hash_map<int64_t, const HloInstruction*>::
                       value_type(instr->unique_id(), instr);
                 });
-            absl::flat_hash_map<std::tuple<const HloInstruction*, unsigned>,
-                                HloSharding>
+            absl::flat_hash_map<const HloInstruction*, std::vector<HloSharding>>
                 transformed_operand_shardings;
             std::transform(
                 operand_shardings.begin(), operand_shardings.end(),
                 std::inserter(transformed_operand_shardings,
                               transformed_operand_shardings.end()),
-                [&instruction_id_map](const auto& pair) {
-                  OpSharding sharding;
-                  if (!sharding.ParseFromString(pair.second)) {
-                    LOG(FATAL) << "Unable to parse protobuf sharding.";
-                  }
+                [&instruction_id_map](const auto& instr_id_shardings_pair) {
+                  std::vector<HloSharding> shardings;
+                  std::transform(
+                      instr_id_shardings_pair.second.begin(),
+                      instr_id_shardings_pair.second.end(),
+                      std::back_inserter(shardings),
+                      [](const py::bytes& sharding_bytes) {
+                        OpSharding sharding_proto;
+                        if (!sharding_proto.ParseFromString(sharding_bytes)) {
+                          LOG(FATAL) << "Unable to parse protobuf sharding.";
+                        }
+                        return HloSharding::FromProto(sharding_proto)
+                            .ValueOrDie();
+                      });
                   return std::make_pair(
-                      std::make_tuple(
-                          instruction_id_map[std::get<0>(pair.first)],
-                          std::get<1>(pair.first)),
-                      std::move(HloSharding::FromProto(sharding).ValueOrDie()));
+                      instruction_id_map[instr_id_shardings_pair.first],
+                      std::move(shardings));
                 });
 
-            return self.Cost(hlo_computation, transformed_operand_shardings);
+            return self.Cost(transformed_operand_shardings);
           },
-          "", py::arg("hlo_module_proto"), py::arg("operand_shardings"));
+          "", py::arg("operand_shardings"));
 
   m.def(
       "run_spmd_partitioner",

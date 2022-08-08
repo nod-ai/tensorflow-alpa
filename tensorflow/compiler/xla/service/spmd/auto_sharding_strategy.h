@@ -3,12 +3,15 @@
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <cmath>
+#include <memory>
 #include <tuple>
 #include <vector>
 
 #include "pybind11/pybind11.h"
 #include "tensorflow/compiler/xla/service/hlo_live_range.h"
+#include "tensorflow/compiler/xla/service/hlo_memory_scheduler.h"
 #include "tensorflow/compiler/xla/service/pass_context.h"
 #include "tensorflow/compiler/xla/service/spmd/auto_sharding_util.h"
 
@@ -728,37 +731,216 @@ class ClusterEnvironment {
   }
 };
 
-struct IntraOpStageCost {
-  IntraOpStageCost(const ClusterEnvironment& cluster_env)
-      : cluster_env(cluster_env) {}
+StatusOr<std::tuple<StrategyMap, LeafStrategies, AssociativeDotPairs>>
+BuildStrategyAndCost(const HloInstructionSequence& sequence,
+                     const InstructionDepthMap& depth_map,
+                     const InstructionBatchDimMap& batch_dim_map,
+                     const AliasMap& alias_map,
+                     const ClusterEnvironment& cluster_env,
+                     AutoShardingSolverOption& solver_option);
+
+AliasMap BuildAliasMap(const HloModule* module,
+                       const HloDataflowAnalysis& dataflow_analysis);
+
+struct HloModuleShardingContext {
+  HloModuleShardingContext(const std::shared_ptr<HloModule>& hlo_module,
+                           const ClusterEnvironment& cluster_env)
+      : hlo_module(hlo_module), cluster_env(cluster_env) {
+    // ----- Pre-process to normalize the dot dimensions -----
+    // TF_ASSIGN_OR_RETURN(bool changed, NormalizeDotDimension(&module));
+
+    // ----- Get a sequential schedule and do liveness analysis -----
+    auto size_fn = [](const BufferValue& buffer) {
+      return GetBytes(buffer.shape());
+    };
+    HloSchedule schedule =
+        ScheduleModule(
+            &*hlo_module, size_fn,
+            ComputationSchedulerToModuleScheduler(DFSMemoryScheduler))
+            .ValueOrDie();
+    const HloComputation* entry_computation = hlo_module->entry_computation();
+    std::unique_ptr<HloAliasAnalysis> alias_analysis =
+        HloAliasAnalysis::Run(&*hlo_module).ConsumeValueOrDie();
+    AliasMap alias_map =
+        BuildAliasMap(&*hlo_module, alias_analysis->dataflow_analysis());
+
+    hlo_live_range =
+        HloLiveRange::Run(schedule, *alias_analysis, entry_computation)
+            .ValueOrDie();
+
+    // ----- Analyze the batch dim -----
+    sequence = &hlo_live_range->flattened_instruction_sequence();
+    InstructionBatchDimMap batch_dim_map;
+    batch_dim_map = BuildInstructionBatchDimMap(*sequence);
+
+    // ----- Analyze depth -----
+    InstructionDepthMap ins_depth_map;
+    ins_depth_map = BuildInstructionDepthMap(*sequence, batch_dim_map);
+
+    // ----- Build strategies and costs -----
+    LeafStrategies leaf_strategies;
+    AssociativeDotPairs associative_dot_pairs;
+    std::tie(strategy_map, leaf_strategies, associative_dot_pairs) = std::move(
+        BuildStrategyAndCost(
+            *sequence, ins_depth_map, batch_dim_map, alias_map, cluster_env,
+            const_cast<AutoShardingSolverOption&>(cluster_env.solver_option))
+            .ValueOrDie());
+  }
 
   // Compute cost of the graph.
   // This does not profile the code but computes the cost as in the ILP
-  // formulation. The key in operand_shardings is the instruction id and index
-  // of the operand for the instruction.
-  double Cost(
-      const HloComputation& computation,
-      const absl::flat_hash_map<std::tuple<const HloInstruction*, unsigned>,
-                                HloSharding>& operand_shardings) const {
-    // TODO(boian): add communication costs
-    return ReshardingCost(operand_shardings);
+  // formulation.
+  double Cost(const absl::flat_hash_map<const HloInstruction*,
+                                        std::vector<HloSharding>>&
+                  operand_shardings) const {
+    return ReshardingCost(operand_shardings) +
+           InstructionCommunicationCost(operand_shardings);
   }
 
-  double ReshardingCost(
-      const absl::flat_hash_map<std::tuple<const HloInstruction*, unsigned>,
-                                HloSharding>& operand_shardings) const {
+  double ReshardingCost(const absl::flat_hash_map<const HloInstruction*,
+                                                  std::vector<HloSharding>>&
+                            operand_shardings) const {
     double res = 0;
-    for (const auto& pair : operand_shardings) {
-      const HloInstruction& instr = *std::get<0>(pair.first);
-      unsigned operand_idx = std::get<1>(pair.first);
-      const HloInstruction& operand = *instr.operand(operand_idx);
-      res += cluster_env.ReshardingCost(instr.shape(), operand.sharding(),
-                                        pair.second);
+    for (const auto& istr_shardings_pair : operand_shardings) {
+      for (size_t operand_idx = 0;
+           operand_idx < istr_shardings_pair.second.size(); ++operand_idx) {
+        const HloInstruction& operand =
+            *istr_shardings_pair.first->operand(operand_idx);
+        res += cluster_env.ReshardingCost(
+            istr_shardings_pair.first->shape(), operand.sharding(),
+            istr_shardings_pair.second[operand_idx]);
+      }
     }
     return res;
   }
 
+  double InstructionCommunicationCost(
+      const absl::flat_hash_map<const HloInstruction*,
+                                std::vector<HloSharding>>& operand_shardings)
+      const {
+    double res = 0;
+    for (HloInstruction* instr : sequence->instructions()) {
+      auto operand_shardings_it = operand_shardings.find(instr);
+      if (operand_shardings_it == operand_shardings.end()) {
+        continue;
+        // LOG(FATAL) << "Missing operand shardings.";
+      }
+      const std::vector<HloSharding>& instr_operand_shardings =
+          operand_shardings_it->second;
+      auto strategy_map_it = strategy_map.find(instr);
+      if (strategy_map_it == strategy_map.end()) {
+        LOG(FATAL) << "Instruction has no sharding strategy: "
+                   << instr->ToString();
+      }
+      if (strategy_map_it->second->is_tuple) {
+        LOG(FATAL) << "Tuple unimplemented.";
+      }
+      const std::vector<ShardingStrategy>& strategies =
+          strategy_map_it->second->leaf_vector;
+      auto strategy_it = find_if(
+          strategies.begin(), strategies.end(),
+          [instr, &instr_operand_shardings](const ShardingStrategy& strategy) {
+            return strategy.input_shardings == instr_operand_shardings &&
+                   strategy.output_sharding == instr->sharding();
+          });
+      if (strategy_it != strategies.end()) {
+        res += strategy_it->communication_cost;
+      } else {
+        // If not in strategies fall to second attempt of computing the cost.
+        // Trivial ops for example does not have all possible sharding
+        // strategies due to sharding propagations.
+
+        // TODO(boian): handle other ops except dot and conv
+
+        switch (instr->opcode()) {
+          // Unary elementwise operations.
+          case HloOpcode::kAbs:
+          case HloOpcode::kRoundNearestAfz:
+          case HloOpcode::kCeil:
+          case HloOpcode::kClz:
+          case HloOpcode::kConvert:
+          case HloOpcode::kBitcast:
+          case HloOpcode::kBitcastConvert:
+          case HloOpcode::kCopy:
+          case HloOpcode::kCos:
+          case HloOpcode::kExp:
+          case HloOpcode::kExpm1:
+          case HloOpcode::kFloor:
+          case HloOpcode::kImag:
+          case HloOpcode::kIsFinite:
+          case HloOpcode::kLog:
+          case HloOpcode::kLog1p:
+          case HloOpcode::kNot:
+          case HloOpcode::kNegate:
+          case HloOpcode::kPopulationCount:
+          case HloOpcode::kReal:
+          case HloOpcode::kReducePrecision:
+          case HloOpcode::kRsqrt:
+          case HloOpcode::kLogistic:
+          case HloOpcode::kSign:
+          case HloOpcode::kSin:
+          case HloOpcode::kSqrt:
+          case HloOpcode::kCbrt:
+          case HloOpcode::kTanh:
+          // Binary elementwise operations
+          case HloOpcode::kAdd:
+          case HloOpcode::kAtan2:
+          case HloOpcode::kCompare:
+          case HloOpcode::kComplex:
+          case HloOpcode::kDivide:
+          case HloOpcode::kMaximum:
+          case HloOpcode::kMinimum:
+          case HloOpcode::kMultiply:
+          case HloOpcode::kPower:
+          case HloOpcode::kRemainder:
+          case HloOpcode::kSubtract:
+          case HloOpcode::kAnd:
+          case HloOpcode::kOr:
+          case HloOpcode::kXor:
+          case HloOpcode::kShiftLeft:
+          case HloOpcode::kShiftRightArithmetic:
+          case HloOpcode::kShiftRightLogical:
+          // Ternary elementwise operations.
+          case HloOpcode::kSelect:
+          case HloOpcode::kClamp: {
+            // Trivial elementwise ops
+            auto non_matching_operand_shardings_it = std::find_if(
+                instr_operand_shardings.begin(), instr_operand_shardings.end(),
+                [instr](const HloSharding& operand_sharding) {
+                  return instr->sharding() != operand_sharding;
+                });
+            if (non_matching_operand_shardings_it !=
+                instr_operand_shardings.end()) {
+              LOG(FATAL) << "Trivial ops support only equal operand and "
+                            "instruction output shardings. Non matching ouput "
+                            "instruction sharding is "
+                         << instr->sharding() << " and operand sharding is "
+                         << *non_matching_operand_shardings_it;
+            }
+            // 0 communication cost. Do nothing
+            break;
+          }
+          default: {
+            LOG(FATAL) << "Unsupported op code of instruction: "
+                       << instr->ToString();
+            break;
+          }
+        }
+      }
+    }
+
+    return res;
+  }
+
+  const std::shared_ptr<xla::HloModule>& HloModule() const {
+    return hlo_module;
+  }
+
  private:
+  std::shared_ptr<xla::HloModule> hlo_module;
+  std::unique_ptr<HloLiveRange> hlo_live_range;
+  const HloInstructionSequence* sequence;
+  StrategyMap strategy_map;
   ClusterEnvironment cluster_env;
 };
 

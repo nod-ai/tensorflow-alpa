@@ -282,14 +282,13 @@ class ClusterEnvironment:
     solver_option: AutoShardingSolverOption = AutoShardingSolverOption()
   ): ...
 
-class IntraOpStageCost:
-  def __init__(self, cluster_env: ClusterEnvironment): ...
+class HloModuleShardingContext:
+  def __init__(self, hlo_module: HloModule, cluster_env: ClusterEnvironment): ...
   def cost(self,
-    hlo_module_proto: bytes,
-    operand_shardings: Dict[Tuple[int, int],
-      "tensorflow.compiler.xla.service.hlo_pb2.OpSharding"]) -> float:
+    operand_shardings: Dict[int,
+      List["tensorflow.compiler.xla.service.hlo_pb2.OpSharding"]]) -> float:
     """
-    :param operand_shardings: The key is a tuple of instruction id and operand
+    :param operand_shardings: The key is instruction id and the value is the sharding for each operand.
     index.
     """
     ...
